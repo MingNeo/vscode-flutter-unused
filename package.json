@@ -2,8 +2,9 @@
   "name": "vscode-flutter-unused",
   "displayName": "flutter unused",
   "description": "Find unused dart files, dependencies and assets in your flutter project",
-  "version": "1.0.0",
-  "author": "mingrenjbdt",
+  "version": "1.0.3",
+  "author": "MingNeo",
+  "publisher": "MingNeo",
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -13,6 +14,7 @@
   ],
   "activationEvents": [],
   "main": "./out/extension.js",
+  "icon": "media/flutter.png",
   "contributes": {
     "commands": [
       {
@@ -28,7 +30,7 @@
     "menus": {
       "view/item/context": [
         {
-          "when": "(view == flutter-unused-files || view == flutter-unused-dependencies || view == flutter-unused-files)",
+          "when": "(view == flutter-unused-files || view == flutter-unused-dependencies || view == flutter-unused-assets)",
           "command": "flutter-unused.deleteResource",
           "group": "inline"
         }
@@ -67,11 +69,15 @@
       }
     ]
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MingNeo/vscode-flutter-unused"
+  },
   "scripts": {
-    "vscode:prepublish": "pnpm run compile",
+    "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "pretest": "pnpm run compile && pnpm run lint",
+    "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "vscode-test"
   },

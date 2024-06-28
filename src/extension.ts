@@ -10,7 +10,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   const findUnusedListDisposable = vscode.commands.registerCommand('flutter-unused.findUnusedList', () => {
     // loading message
-    vscode.window.showInformationMessage('Finding unreferenced resources...')
+    // vscode.window.showInformationMessage('Finding unreferenced resources...')
     const rootPath =
       vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0
         ? vscode.workspace.workspaceFolders[0]?.uri.fsPath
@@ -19,24 +19,33 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.window.showErrorMessage('No workspace is open.')
       return
     }
+    const pubspecPath = path.join(rootPath, 'pubspec.yaml')
+    if (fs.existsSync(pubspecPath)) {
+      const pubspecContent = fs.readFileSync(pubspecPath, 'utf8')
+      if (!pubspecContent.includes('flutter:')) {
+        vscode.window.showErrorMessage('This is not a Flutter project.')
+        return
+      }
+    } else {
+      vscode.window.showErrorMessage('pubspec.yaml not found. This is not a Flutter project.')
+      return
+    }
     const libPath = path.join(rootPath, 'lib')
 
     vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Window,
-        cancellable: false,
+        cancellable: true,
         title: 'Finding unreferenced resources ...',
       },
       async (progress) => {
         progress.report({ increment: 0 })
 
-        const [unreferencedAssets, unreferencedDependencies, unreferencedDartFiles] = await Promise.all([
-          findUnreferencedAssets(),
-          findUnreferencedDependencies(libPath),
-          findUnreferencedDartFiles(),
+        await Promise.all([
+          findUnusedAssets().then((data) => displayResults(data, 'assets')),
+          findUnusedDependencies(libPath).then((data) => displayResults(data, 'dependencies')),
+          findUnusedDartFiles().then((data) => displayResults(data, 'files')),
         ])
-
-        displayResults(unreferencedAssets, unreferencedDependencies, unreferencedDartFiles)
 
         progress.report({ increment: 100 })
       },
@@ -65,7 +74,7 @@ export function activate(context: vscode.ExtensionContext) {
 
             // 运行flutter pub get
             terminal.sendText('flutter pub get')
-            vscode.window.showInformationMessage('Dependency deleted successfully.')
+            // vscode.window.showInformationMessage('Dependency deleted successfully.')
           } catch (err) {
             console.error(err)
             vscode.window.showErrorMessage('Failed to delete dependency.')
@@ -88,7 +97,7 @@ export function activate(context: vscode.ExtensionContext) {
 export function deactivate() {}
 
 // Find unreferenced assets
-async function findUnreferencedAssets(): Promise<Resource[]> {
+async function findUnusedAssets(): Promise<Resource[]> {
   const [assetFiles, dartFiles] = await Promise.all([
     vscode.workspace.findFiles(`assets/**/*`, `assets/fonts/**/*`, 10000),
     vscode.workspace.findFiles(`lib/**/*.dart`, null, 10000),
@@ -100,12 +109,12 @@ async function findUnreferencedAssets(): Promise<Resource[]> {
 
   for (const dartFile of dartFiles) {
     const dartContent = fs.readFileSync(dartFile.fsPath, 'utf-8')
-    for (const asset of assetNames) {
+    assetNames.forEach((asset) => {
       const assetReference = `${asset}`
       if (dartContent.includes(assetReference)) {
         referencedAssets.add(asset)
       }
-    }
+    })
   }
 
   const unreferencedAssets: Resource[] = []
@@ -120,7 +129,7 @@ async function findUnreferencedAssets(): Promise<Resource[]> {
 }
 
 // Find unreferenced Dart files
-async function findUnreferencedDartFiles(): Promise<Resource[]> {
+async function findUnusedDartFiles(): Promise<Resource[]> {
   const dartFiles = await vscode.workspace.findFiles(`lib/**/*.dart`, null, 10000)
   const referencedDartFiles: Set<string> = new Set()
 
@@ -147,7 +156,7 @@ async function findUnreferencedDartFiles(): Promise<Resource[]> {
 }
 
 // Find unreferenced dependencies
-async function findUnreferencedDependencies(libPath: string): Promise<string[]> {
+async function findUnusedDependencies(libPath: string): Promise<string[]> {
   const pubspecPath = path.join(libPath, '..', 'pubspec.yaml')
   if (!fs.existsSync(pubspecPath)) {
     return []
@@ -180,14 +189,10 @@ async function findUnreferencedDependencies(libPath: string): Promise<string[]> 
 }
 
 // Display the results in the sidebar
-function displayResults(unreferencedAssets: Resource[], unreferencedDependencies: string[], unreferencedDartFiles: Resource[]) {
-  const assetTreeDataProvider = new UnusedResourcesTreeDataProvider(unreferencedAssets, [], [])
-  const dependencyTreeDataProvider = new UnusedResourcesTreeDataProvider([], unreferencedDependencies, [])
-  const dartFileTreeDataProvider = new UnusedResourcesTreeDataProvider([], [], unreferencedDartFiles)
+function displayResults(reources: Resource[] | string[], type: 'assets' | 'dependencies' | 'files') {
+  const treeDataProvider = new UnusedResourcesTreeDataProvider(reources, type)
 
-  vscode.window.createTreeView('flutter-unused-assets', { treeDataProvider: assetTreeDataProvider })
-  vscode.window.createTreeView('flutter-unused-dependencies', { treeDataProvider: dependencyTreeDataProvider })
-  vscode.window.createTreeView('flutter-unused-files', { treeDataProvider: dartFileTreeDataProvider })
+  vscode.window.createTreeView(`flutter-unused-${type}`, { treeDataProvider: treeDataProvider })
 }
 
 class Resource {
@@ -195,7 +200,7 @@ class Resource {
 }
 
 class UnusedResourcesTreeDataProvider implements vscode.TreeDataProvider<Resource> {
-  constructor(private unreferencedAssets: any[], private unreferencedDependencies: string[], private unreferencedDartFiles: any[]) {}
+  constructor(private resources: any[], private type: string) {}
 
   getTreeItem(element: Resource): vscode.TreeItem {
     // 检测元素类型：这里假设Resource有一个type属性
@@ -255,18 +260,12 @@ class UnusedResourcesTreeDataProvider implements vscode.TreeDataProvider<Resourc
   getChildren(): Thenable<Resource[]> {
     const results: Resource[] = []
 
-    if (this.unreferencedAssets.length > 0) {
-      results.push(...this.unreferencedAssets)
-    }
-
-    if (this.unreferencedDependencies.length > 0) {
-      this.unreferencedDependencies.forEach((dep) => {
+    if (this.type === 'dependencies') {
+      this.resources.forEach((dep) => {
         results.push(new Resource(dep, '', 'dependency'))
       })
-    }
-
-    if (this.unreferencedDartFiles.length > 0) {
-      results.push(...this.unreferencedDartFiles)
+    } else {
+      results.push(...this.resources)
     }
 
     return Promise.resolve(results)
